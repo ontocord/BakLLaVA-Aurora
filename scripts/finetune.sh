@@ -13,7 +13,7 @@
 ################## LLaMA-2 ##################
 
 PROMPT_VERSION="llava_llama_2"
-MODEL_VERSION=mistralai/Mistral-7B-v0.1
+MODEL_VERSION=Multi-Domain-Expert-Learning/Aurora-40k-hf
 
 
 #!/bin/bash
@@ -24,8 +24,8 @@ deepspeed llava/train/train_mem.py \
     --version v1 \
     --data_path finetune_data/chat/llava_v1_5_mix665k.json \
     --image_folder finetune_data/images \
-    --vision_tower openai/clip-vit-large-patch14-336 \
-    --pretrain_mm_mlp_adapter ./checkpoints/llava-mistralai/Mistral-7B-v0.1-pretrain/mm_projector.bin \
+    --vision_tower timm/ViT-SO400M-14-SigLIP-384 \
+    --pretrain_mm_mlp_adapter ./checkpoints/llava-aurora/Aurora-40k-pretrain/mm_projector.bin \
     --mm_projector_type mlp2x_gelu \
     --mm_vision_select_layer -2 \
     --mm_use_im_start_end False \
@@ -33,7 +33,7 @@ deepspeed llava/train/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
     --bf16 True \
-    --output_dir ../n8/checkpoints/mistral-llava \
+    --output_dir ../n8/checkpoints/aurora-llava \
     --num_train_epochs 1 \
     --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 4 \
