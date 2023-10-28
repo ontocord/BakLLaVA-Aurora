@@ -4,7 +4,7 @@
 
 # MODEL_VERSION=vicuna-v1-3-7b
 # MODEL_VERSION=llama-2-7b-chat
-MODEL_VERSION=mistralai/Mistral-7B-v0.1
+MODEL_VERSION=Multi-Domain-Expert-Learning/Aurora-40k-hf
 
 ########### DO NOT CHANGE ###########
 ########### USE THIS FOR BOTH ###########
@@ -23,14 +23,14 @@ deepspeed llava/train/train_mem.py \
     --version plain \
     --data_path pretrain_data/chat/blip_laion_cc_sbu_558k.json \
     --image_folder pretrain_data/images \
-    --vision_tower openai/clip-vit-large-patch14-336 \
+    --vision_tower timm/ViT-SO400M-14-SigLIP-384 \
     --mm_projector_type mlp2x_gelu \
     --tune_mm_mlp_adapter True \
     --mm_vision_select_layer -2 \
     --mm_use_im_start_end False \
     --mm_use_im_patch_token False \
     --bf16 True \
-    --output_dir ./checkpoints/mistral-pretrain \
+    --output_dir ./checkpoints/aurora-pretrain \
     --num_train_epochs 1 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 4 \
