@@ -31,19 +31,19 @@ class LlavaConfig(GPTBigCodeConfig):
     model_type = "llava"
 
 
-class LlavaGPTBigCodeModel(LlavaMetaModel, GPTBigCodeModel):
+class LlavaAuroraModel(LlavaMetaModel, GPTBigCodeModel):
     config_class = LlavaConfig
 
     def __init__(self, config: GPTBigCodeConfig):
-        super(LlavaGPTBigCodeModel, self).__init__(config)
+        super(LlavaAuroraModel, self).__init__(config)
 
 
-class LlavaGPTBigCodeForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
+class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
     config_class = LlavaConfig
 
     def __init__(self, config):
         super(GPTBigCodeForCausalLM, self).__init__(config)
-        self.transformer = LlavaGPTBigCodeModel(config)
+        self.transformer = LlavaAuroraModel(config)
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
@@ -204,4 +204,4 @@ class LlavaGPTBigCodeForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
         return model_inputs
 
 AutoConfig.register("llava", LlavaConfig)
-AutoModelForCausalLM.register(LlavaConfig, LlavaGPTBigCodeForCausalLM)
+AutoModelForCausalLM.register(LlavaConfig, LlavaAuroraForCausalLM)
