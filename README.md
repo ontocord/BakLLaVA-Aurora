@@ -6,4 +6,4 @@ This is code to train and run Aurora-M, a starcoderplus model trained on 200B ad
 
 Compute provided by the LUMI Supercomputer center and JUWELS Supercomptuer center. This is part of the [M*DEL](https://huggingface.co/Multi-Domain-Expert-Learning) project. See our page for all the participants. 
 
-Check out our BakLLaVA project, which is a cooperation between A project in collaboration with [LAION](www.laion.ai), [Ontocord](www.ontocord.ai) and [Skunkworks OSS AI group](https://huggingface.co/SkunkworksAI).
+Check out our BakLLaVA project, which is a cooperation between A project in collaboration with the AI Open source organizations: [LAION](www.laion.ai), [Ontocord](www.ontocord.ai), [Skunkworks OSS AI group](https://huggingface.co/SkunkworksAI) and [AI Alignment Lab](https://github.com/Alignment-Lab-AI).
