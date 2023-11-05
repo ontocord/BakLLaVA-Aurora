@@ -583,7 +583,7 @@ class LazySupervisedDataset(Dataset):
             image_file = self.list_data_dict[i]['image']
             image_folder = self.data_args.image_folder
             processor = self.data_args.image_processor
-                       try:
+            try:
                 image = Image.open(io.BytesIO(self.zip_file.read(image_file)))
             except:
                 image = Image.open(io.BytesIO(self.zip_file.read(image_file)))
