@@ -53,7 +53,7 @@ def main(args):
 
     image = load_image(args.image_file)
     image_tensor = image_processor.preprocess(image, return_tensors='pt')['pixel_values'].half().cuda()
-
+    image_tensor = torch.nn.functional.normalize(image_tensor)
     while True:
         try:
             inp = input(f"{roles[0]}: ")
