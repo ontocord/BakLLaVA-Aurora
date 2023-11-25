@@ -27,19 +27,21 @@ from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
 from ..llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
 
 
-class LlavaConfig(GPTBigCodeConfig):
-    model_type = "llava"
+class LlavaAuroraConfig(GPTBigCodeConfig):
+    model_type = "llava_aurora"
 
 
 class LlavaAuroraModel(LlavaMetaModel, GPTBigCodeModel):
-    config_class = LlavaConfig
+    config_class = LlavaAuroraConfig
 
     def __init__(self, config: GPTBigCodeConfig):
         super(LlavaAuroraModel, self).__init__(config)
 
-
+    def embed_tokens(self, x):
+        return self.wte(x)
+    
 class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
-    config_class = LlavaConfig
+    config_class = LlavaAuroraConfig
 
     def __init__(self, config):
         super(GPTBigCodeForCausalLM, self).__init__(config)
@@ -72,11 +74,7 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
         images: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
-       
-        if not return_dict:
-            output = (lm_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
-          
+        
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -129,7 +127,7 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
-            cross_attentions=transformer_outputs.cross_attentions,
+            cross_attentions=outputs.cross_attentions,
         )
       
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
@@ -203,5 +201,5 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
         )
         return model_inputs
 
-AutoConfig.register("llava", LlavaConfig)
-AutoModelForCausalLM.register(LlavaConfig, LlavaAuroraForCausalLM)
+AutoConfig.register("llava_aurora", LlavaAuroraConfig)
+AutoModelForCausalLM.register(LlavaAuroraConfig, LlavaAuroraForCausalLM)
