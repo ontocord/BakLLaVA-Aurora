@@ -22,6 +22,7 @@ import pathlib
 from typing import Dict, Optional, Sequence, List
 import torch
 import transformers
+from transformers import DataCollatorForLanguageModeling
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from torch.utils.data import Dataset
 from llava.train.llava_trainer import LLaVATrainer
@@ -62,6 +63,8 @@ class DataArguments:
     lengths_path: Optional[str] = None
     data_path: str = field(default=None,
                            metadata={"help": "Path to the training data."})
+    unsupervised_data_path: str = field(default=None,
+                                        metadata={"help": "Path to the training data."})
     lazy_preprocess: bool = False
     is_multimodal: bool = False
     image_folder: Optional[str] = field(default=None)
@@ -70,6 +73,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+    train_unsupervised: str = field(default=False)
     deepspeed_config: str = field(default=None)
     lr: float = field(default=1e-3)
     beta1: float = field(default=0.5)
@@ -242,6 +246,21 @@ def _tokenize_fn(strings: Sequence[str],
         labels=labels,
         input_ids_lens=input_ids_lens,
         labels_lens=labels_lens,
+    )
+def _unsupervised_tokenize_fn(text: str,
+                 tokenizer: transformers.PreTrainedTokenizer) -> Dict:
+    """Tokenize a string."""
+    tokenized = tokenizer(
+            text,
+            return_tensors="pt",
+            padding="longest",
+            max_length=tokenizer.model_max_length,
+            truncation=True,)
+    input_ids = tokenized.input_ids[0]
+    input_ids_lens = tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item()
+    return dict(
+        input_ids=input_ids,
+        input_ids_lens=input_ids_lens,
     )
 def _mask_targets(target, tokenized_lens, speakers):
     # cur_idx = 0
@@ -541,7 +560,52 @@ def preprocess(
         _mask_targets(target, tokenized_lens, speakers)
 
     return dict(input_ids=input_ids, labels=targets)
+def unsupervised_preprocess(
+    sources: Dict,
+    tokenizer: transformers.PreTrainedTokenizer
+) -> Dict:
+    input_text = eval(sources)['text']
+    input_ids = _unsupervised_tokenize_fn(input_text, tokenizer)
+    return dict(input_ids=input_ids)
+    # """
+    # Given a list of sources, each is a conversation list. This transform:
+    # 1. Add signal '### ' at the beginning each sentence, with end signal '\n';
+    # 2. Concatenate conversations together;
+    # 3. Tokenize the concatenated conversation;
+    # 4. Make a deepcopy as the target. Mask human words with IGNORE_INDEX.
+    # """
+    # if conversation_lib.default_conversation.sep_style == conversation_lib.SeparatorStyle.PLAIN:
+    #     return preprocess_plain(sources, tokenizer)
+    # if conversation_lib.default_conversation.sep_style == conversation_lib.SeparatorStyle.LLAMA_2:
+    #     return preprocess_llama_2(sources, tokenizer, has_image=has_image)
+    # if conversation_lib.default_conversation.version.startswith("v1"):
+    #     return preprocess_v1(sources, tokenizer, has_image=has_image)
+    # if conversation_lib.default_conversation.version == "mpt":
+    #     return preprocess_mpt(sources, tokenizer)
+    # # add end signal and concatenate together
+    # conversations = []
+    # for source in sources:
+    #     header = f"{conversation_lib.default_conversation.system}\n\n"
+    #     conversation = _add_speaker_and_signal(header, source)
+    #     conversations.append(conversation)
+    # # tokenize conversations
+    # def get_tokenize_len(prompts):
+    #     return [len(tokenizer_image_token(prompt, tokenizer)) for prompt in prompts]
+    # if has_image:
+    #     input_ids = [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations]
+    # else:
+    #     conversations_tokenized = _tokenize_fn(conversations, tokenizer)
+    #     input_ids = conversations_tokenized["input_ids"]
+    # targets = copy.deepcopy(input_ids)
+    # for target, source in zip(targets, sources):
+    #     if has_image:
+    #         tokenized_lens = get_tokenize_len([header] + [s["value"] for s in source])
+    #     else:
+    #         tokenized_lens = _tokenize_fn([header] + [s["value"] for s in source], tokenizer)["input_ids_lens"]
+    #     speakers = [sentence["from"] for sentence in source]
+    #     _mask_targets(target, tokenized_lens, speakers)
 
+    # return dict(input_ids=input_ids, labels=targets)
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -624,6 +688,76 @@ class LazySupervisedDataset(Dataset):
             crop_size = self.data_args.image_processor.crop_size
             data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
         return data_dict
+    
+class LazyUnsupervisedDataset(Dataset):
+    """Dataset for supervised fine-tuning."""
+    def __init__(self, data_path: str,
+                 tokenizer: transformers.PreTrainedTokenizer,
+                 data_args: DataArguments):
+        super(LazyUnsupervisedDataset, self).__init__()
+        list_data_dict = []
+        with open(data_path, 'r') as file:
+            for line in file: list_data_dict.append(line.strip())
+        rank0_print("Formatting inputs...Skip in lazy mode")
+        self.tokenizer = tokenizer
+        self.list_data_dict = list_data_dict
+        self.data_args = data_args
+
+
+    def __len__(self):
+        return len(self.list_data_dict)
+    
+    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        sources = self.list_data_dict[i]
+        # sources = eval(sources)['text']
+        # if isinstance(i, int):
+        #     sources = [sources]
+        # assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+        # if 'image' in sources[0]:
+        #     image_file = self.list_data_dict[i]['image']
+        #     image_folder = self.data_args.image_folder
+        #     processor = self.data_args.image_processor
+        #     try:
+        #         image = Image.open(io.BytesIO(self.zip_file.read(image_file)))
+        #     except:
+        #         image = Image.open(io.BytesIO(self.zip_file.read(image_file)))
+        #     if self.data_args.image_aspect_ratio == 'pad':
+        #         def expand2square(pil_img, background_color):
+        #             width, height = pil_img.size
+        #             if width == height:
+        #                 return pil_img
+        #             elif width > height:
+        #                 result = Image.new(pil_img.mode, (width, width), background_color)
+        #                 result.paste(pil_img, (0, (width - height) // 2))
+        #                 return result
+        #             else:
+        #                 result = Image.new(pil_img.mode, (height, height), background_color)
+        #                 result.paste(pil_img, ((height - width) // 2, 0))
+        #                 return result
+        #         image = expand2square(image, tuple(int(x*255) for x in processor.image_mean))
+        #         image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+        #     else:
+        #         image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+        #     sources = preprocess_multimodal(
+        #         copy.deepcopy([e["conversations"] for e in sources]),
+        #         self.data_args)
+        # else:
+        #     sources = copy.deepcopy([e["conversations"] for e in sources])
+        data_dict = unsupervised_preprocess(
+            sources,
+            self.tokenizer)
+        # if isinstance(i, int):
+        #     data_dict = dict(input_ids=data_dict["input_ids"][0],
+        #                      labels=data_dict["labels"][0])
+        # # image exist in the data
+        # if 'image' in self.list_data_dict[i]:
+        #     data_dict['image'] = image
+        # elif self.data_args.is_multimodal:
+        #     # image does not exist in the data, but the model is multimodal
+        #     crop_size = self.data_args.image_processor.crop_size
+        #     data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
+        return data_dict
+    
 @dataclass
 class DataCollatorForSupervisedDataset(object):
     """Collate examples for supervised fine-tuning."""
@@ -676,7 +810,7 @@ class WdsProcessor:
             result.paste(pil_img, ((height - width) // 2, 0))
             return result
 
-    def preprocess_wds(self, data):
+    def preprocess_supervised_wds(self, data):
 
 
         image, sources = data
@@ -713,8 +847,7 @@ class WdsProcessor:
 
         return data_dict
 
-
-def get_wds_dataset(tokenizer, data_args):
+def get_supervised_wds_dataset(tokenizer, data_args):
     wds_processor = WdsProcessor(tokenizer, data_args)
 
     dataset = (
@@ -725,7 +858,7 @@ def get_wds_dataset(tokenizer, data_args):
             )
         .decode("rgb")
         .to_tuple("png", "json")
-        .map(wds_processor.preprocess_wds)
+        .map(wds_processor.preprocess_supervised_wds)
     )
     if data_args.lengths_path:
         with open(data_args.lengths_path, 'r') as f:
@@ -743,6 +876,17 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                                 data_path=data_args.data_path,
                                 data_args=data_args)
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+    return dict(train_dataset=train_dataset,
+                eval_dataset=None,
+                data_collator=data_collator)
+
+def make_unsupervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
+                                data_args) -> Dict:
+    """Make dataset and collator for supervised fine-tuning."""
+    train_dataset = LazyUnsupervisedDataset(tokenizer=tokenizer,
+                                data_path=data_args.unsupervised_data_path,
+                                data_args=data_args)
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,
                 data_collator=data_collator)
@@ -907,7 +1051,7 @@ def train():
     if data_args.dataset_type == "webdataset":
 
         training_args.group_by_length = False     
-        data_module = get_wds_dataset(
+        data_module = get_supervised_wds_dataset(
             tokenizer=tokenizer, 
             data_args=data_args, 
                 )
@@ -925,7 +1069,8 @@ def train():
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
-    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+    PREFIX_CHECKPOINT_DIR = PREFIX_SUPERVISED_CHECKPOINT_DIR = "supervised_checkpoint"
+    if list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_SUPERVISED_CHECKPOINT_DIR}-*")):
         trainer.train(resume_from_checkpoint=True)
     else:
         trainer.train()
@@ -945,5 +1090,38 @@ def train():
     else:
         safe_save_model_for_hf_trainer(trainer=trainer,
                                        output_dir=training_args.output_dir)
+    
+    if training_args.train_unsupervised:
+        data_module = make_unsupervised_data_module(
+            tokenizer=tokenizer,
+            data_args=data_args
+            )
+
+        trainer = LLaVATrainer(model=model,
+                        tokenizer=tokenizer,
+                        args=training_args,
+                        **data_module)
+        PREFIX_CHECKPOINT_DIR = PREFIX_UNSUPERVISED_CHECKPOINT_DIR = "unsupervised_checkpoint"
+        if list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_SUPERVISED_CHECKPOINT_DIR}-*")) or \
+            list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_UNSUPERVISED_CHECKPOINT_DIR}-*")):
+            trainer.train(resume_from_checkpoint=True)
+        else:
+            FileNotFoundError("No checkpoint found for unsupervised training")
+        trainer.save_state()
+        model.config.use_cache = True
+        if training_args.lora_enable:
+            state_dict = get_peft_state_maybe_zero_3(
+                model.named_parameters(), training_args.lora_bias
+            )
+            non_lora_state_dict = get_peft_state_non_lora_maybe_zero_3(
+                model.named_parameters()
+            )
+            if training_args.local_rank == 0 or training_args.local_rank == -1:
+                model.config.save_pretrained(training_args.output_dir)
+                model.save_pretrained(training_args.output_dir, state_dict=state_dict)
+                torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, 'non_lora_trainables.bin'))
+        else:
+            safe_save_model_for_hf_trainer(trainer=trainer,
+                                        output_dir=training_args.output_dir)
 if __name__ == "__main__":
     train()
