@@ -61,7 +61,7 @@ class ModelWorker:
             self.model_name = model_name
 
         logger.info(f"Loading the model {self.model_name} on worker {worker_id} ...")
-        self.tokenizer, self.model, self.image_processor, self.context_len = load_pretrained_model(
+        self.tokenizer, self.model, self.image_processor, self.context_len, self.text_processor = load_pretrained_model(
             model_path, model_base, self.model_name, load_8bit, load_4bit)
         self.is_multimodal = 'llava' in self.model_name.lower()
 
@@ -120,7 +120,7 @@ class ModelWorker:
 
     @torch.inference_mode()
     def generate_stream(self, params):
-        tokenizer, model, image_processor = self.tokenizer, self.model, self.image_processor
+        tokenizer, model, image_processor, text_processor = self.tokenizer, self.model, self.image_processor, self.text_processor
 
         prompt = params["prompt"]
         ori_prompt = prompt
@@ -132,7 +132,7 @@ class ModelWorker:
                     raise ValueError("Number of images does not match number of <image> tokens in prompt")
 
                 images = [load_image_from_base64(image) for image in images]
-                images = process_images(images, image_processor, model.config)
+                images = process_images(images, image_processor, text_proessor, model.config)
 
                 if type(images) is list:
                     images = [image.to(self.model.device, dtype=torch.float16) for image in images]
