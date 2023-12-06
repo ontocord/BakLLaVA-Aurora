@@ -5,16 +5,46 @@ from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
 import transformers
 
 
-class MCLIPConfig(transformers.PretrainedConfig):
-    model_type = "M-CLIP"
+#This is the audio tower
+class ClapConfig(transformers.PretrainedConfig):
+    model_type = "Clap"
 
-    def __init__(self, modelBase='xlm-roberta-large', transformerDimSize=1024, imageDimSize=768, **kwargs):
+    def __init__(self, modelBase='laion/clap-htsat-unfused', transformerDimSize=1024, imageDimSize=768, **kwargs):
         self.transformerDimensions = transformerDimSize
         self.numDims = imageDimSize
         self.modelBase = modelBase
         super().__init__(**kwargs)
+
+class ClapTower(transformers.PreTrainedModel):
+    config_class = ClapConfig
+
+    def __init__(self, modelBase, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        self.clap =  ClapModel.from_pretrained(modelBase) # 
+        self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
+                                                    out_features=config.numDims)
+
+    def forward(self, *args, **vargs):
+        embs = self.clap(*args, **vargs)
+        return self.LinearTransformation(embs)
+
+    @classmethod
+    def _load_state_dict_into_model(cls, model, state_dict, pretrained_model_name_or_path, _fast_init=True):
+        model.load_state_dict(state_dict)
+        return model, [], [], []
         
+
 #This is the text tower. TODO, todo to change
+
+class MCLIPConfig(transformers.PretrainedConfig):
+    model_type = "M-CLIP"
+
+    def __init__(self, modelBase='M-CLIP/LABSE-Vit-L-14', transformerDimSize=1024, numDims=768, **kwargs):
+        self.transformerDimensions = transformerDimSize
+        self.numDims = imageDimSize
+        self.modelBase = modelBase
+        super().__init__(**kwargs)
+
 class MultilingualCLIP(transformers.PreTrainedModel):
     config_class = MCLIPConfig
 
@@ -55,9 +85,12 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name)
         self.vision_tower.requires_grad_(False)
-        self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name) # 'M-CLIP/LABSE-Vit-L-14'
+        self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name)
         self.text_embdder.requires_grad_(False)
         self.text_processor = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
+        #self.clap_model = ClapTower.from_pretrained(self.audio_tower_name)
+        #self.clap_model.requires_grad_(False)        
+        #self.clap_processor = ClapProcessor.from_pretrained(self.audio_tower_name)
 
         self.is_loaded = True
 
