@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 
-from .multimodal_encoder.builder import build_vision_tower
+from .multimodal_encoder.builder import build_multimodal_towers
 from .multimodal_projector.builder import build_vision_projector
 
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
@@ -30,7 +30,7 @@ class LlavaMetaModel:
         super(LlavaMetaModel, self).__init__(config)
 
         if hasattr(config, "mm_vision_tower"):
-            self.vision_tower, self.text_tower = build_vision_tower(config, delay_load=True)
+            self.vision_tower, self.text_tower = build_multimodal_towers(config, delay_load=True)
             self.mm_projector = build_vision_projector(config)
 
     def get_vision_tower(self):
@@ -53,7 +53,7 @@ class LlavaMetaModel:
 
         self.config.mm_vision_tower = vision_tower
 
-        vision_tower, text_tower = build_vision_tower(model_args)
+        vision_tower, text_tower = build_multimodal_towers(model_args)
 
         if fsdp is not None and len(fsdp) > 0:
             self.vision_tower = [vision_tower]
