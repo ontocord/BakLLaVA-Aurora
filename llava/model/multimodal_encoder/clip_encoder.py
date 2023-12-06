@@ -24,8 +24,7 @@ class MultilingualCLIP(transformers.PreTrainedModel):
         self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
                                                     out_features=config.numDims)
 
-    def forward(self, txt, tokenizer, device):
-        txt_tok = tokenizer(txt, padding=True, return_tensors='pt').to(device)
+    def forward(self, txt_tok):
         embs = self.transformer(**txt_tok)[0]
         att = txt_tok['attention_mask']
         embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
@@ -56,7 +55,8 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name)
         self.vision_tower.requires_grad_(False)
-        self.text_model = MultilingualCLIP.from_pretrained(self.text_tower_name) # 'M-CLIP/LABSE-Vit-L-14'
+        self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name) # 'M-CLIP/LABSE-Vit-L-14'
+        self.text_embdder.requires_grad_(False)
         self.text_processor = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
 
         self.is_loaded = True
