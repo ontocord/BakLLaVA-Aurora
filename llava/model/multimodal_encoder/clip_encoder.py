@@ -2,7 +2,40 @@ import torch
 import torch.nn as nn
 
 from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
+import transformers
 
+
+class MCLIPConfig(transformers.PretrainedConfig):
+    model_type = "M-CLIP"
+
+    def __init__(self, modelBase='xlm-roberta-large', transformerDimSize=1024, imageDimSize=768, **kwargs):
+        self.transformerDimensions = transformerDimSize
+        self.numDims = imageDimSize
+        self.modelBase = modelBase
+        super().__init__(**kwargs)
+        
+
+class MultilingualCLIP(transformers.PreTrainedModel):
+    config_class = MCLIPConfig
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        self.transformer = transformers.AutoModel.from_pretrained(config.modelBase)
+        self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
+                                                    out_features=config.numDims)
+
+    def forward(self, txt, tokenizer, device):
+        txt_tok = tokenizer(txt, padding=True, return_tensors='pt').to(device)
+        embs = self.transformer(**txt_tok)[0]
+        att = txt_tok['attention_mask']
+        embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
+        return self.LinearTransformation(embs)
+
+    @classmethod
+    def _load_state_dict_into_model(cls, model, state_dict, pretrained_model_name_or_path, _fast_init=True):
+        model.load_state_dict(state_dict)
+        return model, [], [], []
+        
 
 class CLIPVisionTower(nn.Module):
     def __init__(self, vision_tower, args, delay_load=False):
@@ -23,6 +56,8 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name)
         self.vision_tower.requires_grad_(False)
+        self.text_model = MultilingualCLIP.from_pretrained(self.text_tower_name) # 'M-CLIP/LABSE-Vit-L-14'
+        self.text_processor = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
 
         self.is_loaded = True
 
