@@ -30,7 +30,7 @@ class LlavaMetaModel:
         super(LlavaMetaModel, self).__init__(config)
 
         if hasattr(config, "mm_vision_tower"):
-            self.vision_tower = build_vision_tower(config, delay_load=True)
+            self.vision_tower, self.text_tower = build_vision_tower(config, delay_load=True)
             self.mm_projector = build_vision_projector(config)
 
     def get_vision_tower(self):
@@ -38,6 +38,12 @@ class LlavaMetaModel:
         if type(vision_tower) is list:
             vision_tower = vision_tower[0]
         return vision_tower
+
+    def get_text_tower(self):
+        text_tower = getattr(self, 'text_tower', None)
+        if type(text_tower) is list:
+            text_tower = text_tower[0]
+        return text_tower
 
     def initialize_vision_modules(self, model_args, fsdp=None):
         vision_tower = model_args.vision_tower
@@ -47,13 +53,17 @@ class LlavaMetaModel:
 
         self.config.mm_vision_tower = vision_tower
 
-        vision_tower = build_vision_tower(model_args)
+        vision_tower, text_tower = build_vision_tower(model_args)
 
         if fsdp is not None and len(fsdp) > 0:
             self.vision_tower = [vision_tower]
         else:
             self.vision_tower = vision_tower
-
+        if fsdp is not None and len(fsdp) > 0:
+            self.text_tower = [text_tower]
+        else:
+            self.text_tower = text_tower
+        
         self.config.use_mm_proj = True
         self.config.mm_projector_type = getattr(model_args, 'mm_projector_type', 'linear')
         self.config.mm_hidden_size = vision_tower.hidden_size
@@ -79,7 +89,7 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
-    def encode_texts(self, texts):
+    def encode_text_embeddings(self, texts):
         text_features = self.get_model().get_text_tower()(texts)
         text_features = self.get_model().mm_projector(text_features)
         return text_features
@@ -90,7 +100,7 @@ class LlavaMetaForCausalLM(ABC):
         return image_features
 
     def prepare_inputs_labels_for_multimodal(
-        self, input_ids, attention_mask, past_key_values, labels, images, texts_for_embedding,
+        self, input_ids, attention_mask, past_key_values, labels, images, texts_for_embedding=None,
     ):
         vision_tower = self.get_vision_tower()
         if vision_tower is None or (images is None and texts_for_embedding is None) or input_ids.shape[1] == 1:
@@ -99,21 +109,21 @@ class LlavaMetaForCausalLM(ABC):
             return input_ids, attention_mask, past_key_values, None, labels
         image_features = None
         text_features = None
-        if type(texts_for_embedding) is list or texts_for_embedding.ndim == 3:
+        if text_for_embedding is not None and (type(texts_for_embedding) is list or texts_for_embedding.ndim == 3):
             concat_texts = torch.cat([text for text in texts_for_embedding], dim=0)
-            text_features = self.encode_texts(concat_texts)
+            text_features = self.encode_text_embeddings(concat_texts)
             split_sizes = [text.shape[0] for text in texts]
             text_features = torch.split(text_features, split_sizes, dim=0)
             text_features = [x.flatten(0, 1) for x in text_features]
-        elif texts_for_embedding:
-            text_features = self.encode_images(texts_for_embedding)
-        elif type(images) is list or images.ndim == 5:
+        elif texts_for_embedding is not None:
+            text_features = self.encode_text_embeddings(texts_for_embedding)
+        elif images is not None and (type(images) is list or images.ndim == 5):
             concat_images = torch.cat([image for image in images], dim=0)
             image_features = self.encode_images(concat_images)
             split_sizes = [image.shape[0] for image in images]
             image_features = torch.split(image_features, split_sizes, dim=0)
             image_features = [x.flatten(0, 1) for x in image_features]
-        elif images:
+        elif images is not None:
             image_features = self.encode_images(images)
 
         new_input_embeds = []
