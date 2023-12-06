@@ -85,21 +85,30 @@ class LlavaMetaForCausalLM(ABC):
         return image_features
 
     def prepare_inputs_labels_for_multimodal(
-        self, input_ids, attention_mask, past_key_values, labels, images
+        self, input_ids, attention_mask, past_key_values, labels, images, texts_for_embedding,
     ):
         vision_tower = self.get_vision_tower()
-        if vision_tower is None or images is None or input_ids.shape[1] == 1:
+        if vision_tower is None or (images is None and texts_for_embedding is None) or input_ids.shape[1] == 1:
             if past_key_values is not None and vision_tower is not None and images is not None and input_ids.shape[1] == 1:
                 attention_mask = torch.ones((attention_mask.shape[0], past_key_values[-1][-1].shape[-2] + 1), dtype=attention_mask.dtype, device=attention_mask.device)
             return input_ids, attention_mask, past_key_values, None, labels
-
-        if type(images) is list or images.ndim == 5:
+        image_features = None
+        text_features = None
+        if type(texts_for_embedding) is list or texts_for_embedding.ndim == 3:
+            concat_texts = torch.cat([text for text in texts_for_embedding], dim=0)
+            text_features = self.encode_texts(concat_texts)
+            split_sizes = [text.shape[0] for text in texts]
+            text_features = torch.split(text_features, split_sizes, dim=0)
+            text_features = [x.flatten(0, 1) for x in text_features]
+        elif texts_for_embedding:
+            text_features = self.encode_images(texts_for_embedding)
+        elif type(images) is list or images.ndim == 5:
             concat_images = torch.cat([image for image in images], dim=0)
             image_features = self.encode_images(concat_images)
             split_sizes = [image.shape[0] for image in images]
             image_features = torch.split(image_features, split_sizes, dim=0)
             image_features = [x.flatten(0, 1) for x in image_features]
-        else:
+        elif images:
             image_features = self.encode_images(images)
 
         new_input_embeds = []
@@ -110,10 +119,13 @@ class LlavaMetaForCausalLM(ABC):
                 # multimodal LLM, but the current sample is not multimodal
                 # FIXME: this is a hacky fix, for deepspeed zero3 to work
                 half_len = cur_input_ids.shape[0] // 2
-                cur_image_features = image_features[cur_image_idx]
+                if image_features is not None:
+                    cur_embed_features = image_features[cur_image_idx]
+                else:
+                    cur_embed_features = text_features[cur_image_idx]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids[:half_len])
                 cur_input_embeds_2 = self.get_model().embed_tokens(cur_input_ids[half_len:])
-                cur_input_embeds = torch.cat([cur_input_embeds_1, cur_image_features[0:0], cur_input_embeds_2], dim=0)
+                cur_input_embeds = torch.cat([cur_input_embeds_1, cur_embed_features[0:0], cur_input_embeds_2], dim=0)
                 new_input_embeds.append(cur_input_embeds)
                 if labels is not None:
                     new_labels.append(labels[batch_idx])
