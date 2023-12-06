@@ -86,9 +86,10 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name)
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name)
         self.vision_tower.requires_grad_(False)
-        self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name)
-        self.text_embdder.requires_grad_(False)
-        self.text_processor = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
+        
+        #self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name)
+        #self.text_embdder.requires_grad_(False)
+        #self.text_processor = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
         #self.clap_model = ClapTower.from_pretrained(self.audio_tower_name)
         #self.clap_model.requires_grad_(False)        
         #self.clap_processor = ClapProcessor.from_pretrained(self.audio_tower_name)
