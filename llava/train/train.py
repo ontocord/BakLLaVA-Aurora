@@ -576,10 +576,19 @@ class LazySupervisedDataset(Dataset):
         return length_list
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         sources = self.list_data_dict[i]
+        text_toks = None
+        image = None
         if isinstance(i, int):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
-        if 'image' in sources[0]:
+        if 'text' in sources[0]:
+            text = self.list_data_dict[i]['text']
+            tokenizer = self.data_args.text_tokenizer
+            text_toks = tokenizer(text, return_tensors='pt')
+            sources = preprocess_multimodal(
+                copy.deepcopy([e["conversations"] for e in sources]),
+                self.data_args)
+        elif 'image' in sources[0]:
             image_file = self.list_data_dict[i]['image']
             image_folder = self.data_args.image_folder
             processor = self.data_args.image_processor
@@ -612,13 +621,15 @@ class LazySupervisedDataset(Dataset):
         data_dict = preprocess(
             sources,
             self.tokenizer,
-            has_image=('image' in self.list_data_dict[i]))
+            has_image=('image' in self.list_data_dict[i] or 'text' in self.list_data_dict[i]))),
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
                              labels=data_dict["labels"][0])
         # image exist in the data
-        if 'image' in self.list_data_dict[i]:
-            data_dict['image'] = image
+        if 'text' in self.list_data_dict[i]:
+            data_dict['text_toks'] = text_toks
+        elif 'image' in self.list_data_dict[i]:
+            data_dict['image'] = image  
         elif self.data_args.is_multimodal:
             # image does not exist in the data, but the model is multimodal
             crop_size = self.data_args.image_processor.crop_size
