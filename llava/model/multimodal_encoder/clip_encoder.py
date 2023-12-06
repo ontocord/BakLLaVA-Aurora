@@ -14,7 +14,7 @@ class MCLIPConfig(transformers.PretrainedConfig):
         self.modelBase = modelBase
         super().__init__(**kwargs)
         
-
+#This is the text tower. TODO, todo to change
 class MultilingualCLIP(transformers.PreTrainedModel):
     config_class = MCLIPConfig
 
