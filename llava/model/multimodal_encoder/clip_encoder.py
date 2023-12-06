@@ -18,9 +18,9 @@ class MCLIPConfig(transformers.PretrainedConfig):
 class MultilingualCLIP(transformers.PreTrainedModel):
     config_class = MCLIPConfig
 
-    def __init__(self, config, *args, **kwargs):
+    def __init__(self, modelBase, config, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
-        self.transformer = transformers.AutoModel.from_pretrained(config.modelBase)
+        self.transformer = transformers.AutoModel.from_pretrained(modelBase)
         self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
                                                     out_features=config.numDims)
 
