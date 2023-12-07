@@ -14,6 +14,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 import os
+import re
 import copy
 from dataclasses import dataclass, field
 import json
@@ -22,6 +23,7 @@ import pathlib
 from typing import Dict, Optional, Sequence, List
 import torch
 import transformers
+from transformers import DataCollatorForLanguageModeling
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from torch.utils.data import Dataset
 from llava.train.llava_trainer import LLaVATrainer
@@ -62,6 +64,8 @@ class DataArguments:
     lengths_path: Optional[str] = None
     data_path: str = field(default=None,
                            metadata={"help": "Path to the training data."})
+    unsupervised_data_path: str = field(default=None,
+                                        metadata={"help": "Path to the training data."})
     lazy_preprocess: bool = False
     is_multimodal: bool = False
     image_folder: Optional[str] = field(default=None)
@@ -70,6 +74,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+    train_supervised: bool = field(default=True)
     deepspeed_config: str = field(default=None)
     lr: float = field(default=1e-3)
     beta1: float = field(default=0.5)
@@ -242,6 +247,21 @@ def _tokenize_fn(strings: Sequence[str],
         labels=labels,
         input_ids_lens=input_ids_lens,
         labels_lens=labels_lens,
+    )
+def _unsupervised_tokenize_fn(text: str,
+                 tokenizer: transformers.PreTrainedTokenizer) -> Dict:
+    """Tokenize a string."""
+    tokenized = tokenizer(
+            text,
+            return_tensors="pt",
+            padding="longest",
+            max_length=tokenizer.model_max_length,
+            truncation=True,)
+    input_ids = tokenized.input_ids[0]
+    input_ids_lens = tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item()
+    return dict(
+        input_ids=input_ids,
+        input_ids_lens=input_ids_lens,
     )
 def _mask_targets(target, tokenized_lens, speakers):
     # cur_idx = 0
@@ -541,7 +561,13 @@ def preprocess(
         _mask_targets(target, tokenized_lens, speakers)
 
     return dict(input_ids=input_ids, labels=targets)
-
+def unsupervised_preprocess(
+    sources: Dict,
+    tokenizer: transformers.PreTrainedTokenizer
+) -> Dict:
+    input_text = eval(sources)['text']
+    input_ids = _unsupervised_tokenize_fn(input_text, tokenizer)['input_ids']
+    return dict(input_ids=input_ids)
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -635,6 +661,32 @@ class LazySupervisedDataset(Dataset):
             crop_size = self.data_args.image_processor.crop_size
             data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
         return data_dict
+    
+class LazyUnsupervisedDataset(Dataset):
+    """Dataset for supervised fine-tuning."""
+    def __init__(self, data_path: str,
+                 tokenizer: transformers.PreTrainedTokenizer,
+                 data_args: DataArguments):
+        super(LazyUnsupervisedDataset, self).__init__()
+        list_data_dict = []
+        with open(data_path, 'r') as file:
+            for line in file: list_data_dict.append(line.strip())
+        rank0_print("Formatting inputs...Skip in lazy mode")
+        self.tokenizer = tokenizer
+        self.list_data_dict = list_data_dict
+        self.data_args = data_args
+
+
+    def __len__(self):
+        return len(self.list_data_dict)
+    
+    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        sources = self.list_data_dict[i]
+        data_dict = unsupervised_preprocess(
+            sources,
+            self.tokenizer)
+        return data_dict['input_ids']
+    
 @dataclass
 class DataCollatorForSupervisedDataset(object):
     """Collate examples for supervised fine-tuning."""
@@ -665,7 +717,6 @@ class DataCollatorForSupervisedDataset(object):
                 batch['images'] = torch.stack(images)
             else:
                 batch['images'] = images
-        # print(batch['input_ids'].shape)
 
         return batch
 
@@ -687,7 +738,7 @@ class WdsProcessor:
             result.paste(pil_img, ((height - width) // 2, 0))
             return result
 
-    def preprocess_wds(self, data):
+    def preprocess_supervised_wds(self, data):
 
 
         image, sources = data
@@ -724,8 +775,7 @@ class WdsProcessor:
 
         return data_dict
 
-
-def get_wds_dataset(tokenizer, data_args):
+def get_supervised_wds_dataset(tokenizer, data_args):
     wds_processor = WdsProcessor(tokenizer, data_args)
 
     dataset = (
@@ -736,7 +786,7 @@ def get_wds_dataset(tokenizer, data_args):
             )
         .decode("rgb")
         .to_tuple("png", "json")
-        .map(wds_processor.preprocess_wds)
+        .map(wds_processor.preprocess_supervised_wds)
     )
     if data_args.lengths_path:
         with open(data_args.lengths_path, 'r') as f:
@@ -757,6 +807,30 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,
                 data_collator=data_collator)
+
+def make_unsupervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
+                                data_args) -> Dict:
+    """Make dataset and collator for supervised fine-tuning."""
+    train_dataset = LazyUnsupervisedDataset(tokenizer=tokenizer,
+                                data_path=data_args.unsupervised_data_path,
+                                data_args=data_args)
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    return dict(train_dataset=train_dataset,
+                eval_dataset=None,
+                data_collator=data_collator)
+
+def get_last_checkpoint(PREFIX_CHECKPOINT_DIR, folder):
+    _re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
+    content = os.listdir(folder)
+    checkpoints = [
+        path
+        for path in content
+        if _re_checkpoint.search(path) is not None and os.path.isdir(os.path.join(folder, path))
+    ]
+    if len(checkpoints) == 0:
+        return
+    return os.path.join(folder, max(checkpoints, key=lambda x: int(_re_checkpoint.search(x).groups()[0])))
+
 def train():
     global local_rank
     parser = transformers.HfArgumentParser(
@@ -915,31 +989,62 @@ def train():
                 if hasattr(module, 'weight'):
                     if training_args.bf16 and module.weight.dtype == torch.float32:
                         module = module.to(torch.bfloat16)
-    if data_args.dataset_type == "webdataset":
+    
+    global PREFIX_CHECKPOINT_DIR
+    PREFIX_SUPERVISED_CHECKPOINT_DIR = "supervised_checkpoint"
+    PREFIX_UNSUPERVISED_CHECKPOINT_DIR = "unsupervised_checkpoint"
+    if training_args.train_supervised:
+        if data_args.dataset_type == "webdataset":
 
-        training_args.group_by_length = False     
-        data_module = get_wds_dataset(
-            tokenizer=tokenizer, 
-            data_args=data_args, 
+            training_args.group_by_length = False     
+            data_module = get_supervised_wds_dataset(
+                tokenizer=tokenizer, 
+                data_args=data_args, 
+                    )
+
+
+        elif data_args.dataset_type == "files":
+            data_module = make_supervised_data_module(
+                tokenizer=tokenizer,
+                data_args=data_args
                 )
-
-
-    elif data_args.dataset_type == "files":
-        data_module = make_supervised_data_module(
+        else:
+            ValueError(f"Unknown dataset type {data_args.dataset_type}! Dataset type should be euther `webdataset` or `files`")
+        
+        PREFIX_CHECKPOINT_DIR = PREFIX_SUPERVISED_CHECKPOINT_DIR
+        
+        trainer = LLaVATrainer(model=model,
+                        tokenizer=tokenizer,
+                        args=training_args,
+                        **data_module)
+        
+        if list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_SUPERVISED_CHECKPOINT_DIR}-*")):
+            resume_from_checkpoint = get_last_checkpoint(PREFIX_SUPERVISED_CHECKPOINT_DIR, training_args.output_dir)
+            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        else:
+            trainer.train()
+    else:
+        data_module = make_unsupervised_data_module(
             tokenizer=tokenizer,
             data_args=data_args
             )
-    else:
-        ValueError(f"Unknown dataset type {data_args.dataset_type}! Dataset type should be euther `webdataset` or `files`")
 
-    trainer = LLaVATrainer(model=model,
-                    tokenizer=tokenizer,
-                    args=training_args,
-                    **data_module)
-    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-        trainer.train(resume_from_checkpoint=True)
-    else:
-        trainer.train()
+        PREFIX_CHECKPOINT_DIR = PREFIX_UNSUPERVISED_CHECKPOINT_DIR
+        
+        trainer = LLaVATrainer(model=model,
+                        tokenizer=tokenizer,
+                        args=training_args,
+                        **data_module)
+        
+        if list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_UNSUPERVISED_CHECKPOINT_DIR}-*")):
+            resume_from_checkpoint = get_last_checkpoint(PREFIX_UNSUPERVISED_CHECKPOINT_DIR, training_args.output_dir)
+            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        elif list(pathlib.Path(training_args.output_dir).glob(f"{PREFIX_SUPERVISED_CHECKPOINT_DIR}-*")):
+            resume_from_checkpoint = get_last_checkpoint(PREFIX_SUPERVISED_CHECKPOINT_DIR, training_args.output_dir)
+            trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        else:
+            FileNotFoundError("No checkpoint found for unsupervised training")
+            
     trainer.save_state()
     model.config.use_cache = True
     if training_args.lora_enable:
@@ -955,6 +1060,6 @@ def train():
             torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, 'non_lora_trainables.bin'))
     else:
         safe_save_model_for_hf_trainer(trainer=trainer,
-                                       output_dir=training_args.output_dir)
+                                    output_dir=training_args.output_dir)
 if __name__ == "__main__":
     train()
