@@ -1,5 +1,5 @@
 #!/bin/bash -x
-#SBATCH --nodes=8
+#SBATCH --nodes=16
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=12
@@ -42,7 +42,7 @@ MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_ADDR="${MASTER_ADDR}.juwels"
 
 export MASTER_PORT=6000
-export NUM_NODES=8
+export NUM_NODES=16
 export NUM_GPUS=4
 # export HOSTFILE_PATH="/p/project/laionize/marianna/bakllava_original/hostfile1"
 export NCCL_DEBUG=INFO
@@ -106,7 +106,7 @@ export CMD="llava/train/train_mem.py \
     --dataloader_num_workers 1 \
     --lazy_preprocess True \
     --report_to none \
-    --deepspeed ./scripts/zero2.json "
+    --deepspeed ./scripts/zero3.json "
 
 srun --wait=60 \
     --kill-on-bad-exit=1 \
