@@ -51,6 +51,8 @@ class ModelArguments:
     freeze_backbone: bool = field(default=False)
     tune_mm_mlp_adapter: bool = field(default=False)
     vision_tower: Optional[str] = field(default=None)
+    text_tower: Optional[str] = field(default=None)
+    use_text_tower: bool = field(default=False)
     mm_vision_select_layer: Optional[int] = field(default=-1)   # default to the last layer
     pretrain_mm_mlp_adapter: Optional[str] = field(default=None)
     mm_projector_type: Optional[str] = field(default='linear')
@@ -602,10 +604,19 @@ class LazySupervisedDataset(Dataset):
         return length_list
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
         sources = self.list_data_dict[i]
+        text_toks = None
+        image = None
         if isinstance(i, int):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
-        if 'image' in sources[0]:
+        if 'text' in sources[0]:
+            text = self.list_data_dict[i]['text']
+            tokenizer = self.data_args.textemb_tokenizer
+            text_toks = tokenizer(text, return_tensors='pt')
+            sources = preprocess_multimodal(
+                copy.deepcopy([e["conversations"] for e in sources]),
+                self.data_args)
+        elif 'image' in sources[0]:
             image_file = self.list_data_dict[i]['image']
             image_folder = self.data_args.image_folder
             processor = self.data_args.image_processor
@@ -638,13 +649,16 @@ class LazySupervisedDataset(Dataset):
         data_dict = preprocess(
             sources,
             self.tokenizer,
-            has_image=('image' in self.list_data_dict[i]))
+            has_image=('image' in self.list_data_dict[i] or 'text' in self.list_data_dict[i]))
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
                              labels=data_dict["labels"][0])
+        # text exists in the data
+        if 'text' in self.list_data_dict[i]:
+            data_dict['text_toks'] = text_toks
         # image exist in the data
-        if 'image' in self.list_data_dict[i]:
-            data_dict['image'] = image
+        elif 'image' in self.list_data_dict[i]:
+            data_dict['image'] = image  
         elif self.data_args.is_multimodal:
             # image does not exist in the data, but the model is multimodal
             crop_size = self.data_args.image_processor.crop_size
@@ -700,7 +714,10 @@ class DataCollatorForSupervisedDataset(object):
             labels=labels,
             attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
         )
-        if 'image' in instances[0]:
+        if 'text_toks' in instances[0]:
+            text_toks = [instance['text_toks'] for instance in instances]
+            batch['text_toks'] = text_toks
+        elif 'image' in instances[0]:
             images = [instance['image'] for instance in instances]
             if all(x is not None and x.shape == images[0].shape for x in images):
                 batch['images'] = torch.stack(images)
@@ -731,9 +748,17 @@ class WdsProcessor:
 
 
         image, sources = data
-        has_image = 'image' in sources
-        sources = [sources]
-        if has_image:
+        if isinstance(i, int):
+            sources = [sources]
+        assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+        if 'text' in sources[0]:
+            text = self.list_data_dict[i]['text']
+            tokenizer = self.data_args.textemb_tokenizer
+            text_toks = tokenizer(text, return_tensors='pt')
+            sources = preprocess_multimodal(
+                copy.deepcopy([e["conversations"] for e in sources]),
+                self.data_args)
+        elif 'image' in sources[0]:
             if self.data_args.image_aspect_ratio == 'pad':
 
                 image = self.expand2square(image, tuple(int(x*255) for x in processor.image_mean))
@@ -745,23 +770,25 @@ class WdsProcessor:
                 self.data_args)
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
-
+            
         data_dict = preprocess(
-                sources,
-                self.tokenizer,
-                has_image=has_image)
+            sources,
+            self.tokenizer,
+            has_image=('image' in self.list_data_dict[i] or 'text' in self.list_data_dict[i]))
 
         data_dict = dict(input_ids=data_dict["input_ids"][0],
-                             labels=data_dict["labels"][0])
-
-
-        if has_image:
-            data_dict['image'] = image
+                         labels=data_dict["labels"][0])
+        
+        # text exists in the data
+        if 'text' in self.list_data_dict[i]:
+            data_dict['text_toks'] = text_toks
+        # image exist in the data
+        elif 'image' in self.list_data_dict[i]:
+            data_dict['image'] = image  
         elif self.data_args.is_multimodal:
             # image does not exist in the data, but the model is multimodal
             crop_size = self.data_args.image_processor.crop_size
             data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
-
         return data_dict
 
 def get_supervised_wds_dataset(tokenizer, data_args):
@@ -944,7 +971,10 @@ def train():
             model_args=model_args,
             fsdp=training_args.fsdp
         )
-        
+
+        text_tower = model.get_text_tower()
+        text_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
+        data_args.textemb_tokenizer = text_tower.textemb_tokenizer
         vision_tower = model.get_vision_tower()
         vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
         data_args.image_processor = vision_tower.image_processor

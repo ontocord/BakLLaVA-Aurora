@@ -1,11 +1,11 @@
 #!/bin/bash -x
-#SBATCH --nodes=16
+#SBATCH --nodes=4
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=12
 #SBATCH --job-name=bakllava-aurora-lumi-dev
 #SBATCH --account=cstdl
-#SBATCH --partition=booster
+#SBATCH --partition=develbooster
 #SBATCH --time=2:00:00
 #SBATCH --threads-per-core=1
 #SBATCH --output /p/project/ccstdl/raj3/aurora-m/slurm-output/bakllava-runs-dev-%j.out
@@ -15,15 +15,17 @@ MINICONDA_PATH="/p/project/ccstdl/shared/generic/miniconda3"
 
 
 MODEL_VERSION="aurora-m/Aurora-40k-hf"
-EXP_NAME="bakllava-quadrant-$MODEL_VERSION-pretrain-save_all"
+EXP_NAME="bakllava-quadrant-$MODEL_VERSION-pretrain"
 
 # BAKLLAVA_PATH="/p/project/laionize/marianna/bakllava_original/BakLLaVA"
 BAKLLAVA_PATH="/p/project/ccstdl/raj3/aurora-m"
 
-DATA_PATH="/p/scratch/ccstdl/marianna/bakllava/blip_laion_cc_sbu_558k.json"
+# DATA_PATH="/p/scratch/ccstdl/marianna/bakllava/blip_laion_cc_sbu_558k.json"
+DATA_PATH="/p/scratch/ccstdl/raj3/aurora-m/blip_laion_cc_sbu_558k_text2text.json"
 TEXT_DATA_PATH="/p/scratch/ccstdl/lumi-data/en/books_2k_part_aa.jsonl"
 IMAGE_FOLDER="/p/scratch/ccstdl/marianna/bakllava/images.zip"
 VISION_TOWER="openai/clip-vit-large-patch14"
+TEXTEMB_TOWER="M-CLIP/LABSE-Vit-L-14"
 OUTPUT_DIR="/p/scratch/ccstdl/raj3/aurora-m/checkpoints/$EXP_NAME"
 
 source ${MINICONDA_PATH}/bin/activate ${CONDA_ENV}
@@ -42,7 +44,7 @@ MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
 export MASTER_ADDR="${MASTER_ADDR}.juwels"
 
 export MASTER_PORT=6000
-export NUM_NODES=16
+export NUM_NODES=4
 export NUM_GPUS=4
 # export HOSTFILE_PATH="/p/project/laionize/marianna/bakllava_original/hostfile1"
 export NCCL_DEBUG=INFO
@@ -54,7 +56,7 @@ PROMPT_VERSION=plain
 
 export PYTHONPATH="$PYTHONPATH:${BAKLLAVA_PATH}"
 
-
+export CUDA_DEVICE_BLOCKING=1
 
 cd ${BAKLLAVA_PATH}
 
@@ -71,7 +73,7 @@ export LAUNCHER="python -u -m torch.distributed.run \
     "
 
 export CMD="llava/train/train_mem.py \
-    --train_supervised False \
+    --train_supervised True \
     --model_name_or_path $MODEL_VERSION \
     --cache_dir "/p/scratch/ccstdl/raj3" \
     --version plain \
@@ -80,6 +82,8 @@ export CMD="llava/train/train_mem.py \
     --data_path $DATA_PATH \
     --unsupervised_data_path $TEXT_DATA_PATH \
     --vision_tower $VISION_TOWER \
+    --text_tower $TEXTEMB_TOWER \
+    --use_text_tower True \
     --tune_mm_mlp_adapter True \
     --mm_vision_select_layer -2 \
     --mm_use_im_start_end False \
