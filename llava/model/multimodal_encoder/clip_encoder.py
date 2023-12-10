@@ -51,7 +51,7 @@ class MultilingualCLIP(pt_multilingual_clip.MultilingualCLIP):
         embs = self.transformer(**text_tok)[0]
         att = text_tok['attention_mask']
         embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
-        return self.LinearTransformation(embs)
+        return nn.functional.normalize(self.LinearTransformation(embs))
 
 
 class CLIPVisionTower(nn.Module):
@@ -98,7 +98,7 @@ class CLIPVisionTower(nn.Module):
             image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
             image_features = self.feature_select(image_forward_outs).to(images.dtype)
 
-        return image_features
+        return nn.functional.normalize(image_features)
 
     @property
     def dummy_feature(self):
