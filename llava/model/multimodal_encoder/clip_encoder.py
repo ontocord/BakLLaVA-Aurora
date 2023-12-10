@@ -49,7 +49,7 @@ class MultilingualCLIP(pt_multilingual_clip.MultilingualCLIP):
         embs = self.transformer(**text_tok)[0]
         att = text_tok['attention_mask']
         embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
-        return self.LinearTransformation(embs)
+        return nn.functional.normalize(self.LinearTransformation(embs))
 
 
 class CLIPVisionTower(nn.Module):
@@ -71,14 +71,6 @@ class CLIPVisionTower(nn.Module):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name, cache_dir="/p/scratch/ccstdl/raj3")
         self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name, cache_dir="/p/scratch/ccstdl/raj3")
         self.vision_tower.requires_grad_(False)
-        
-        #self.text_embdder = MultilingualCLIP.from_pretrained(self.text_tower_name)
-        #self.text_embdder.requires_grad_(False)
-        # WE REALLY NEED TO PUT THE TEXT TOKENIZER FOR CLIP SOMEWHERE ELSE
-        self.text_tokenizer = transformers.AutoTokenizer.from_pretrained(self.text_tower_name)
-        #self.clap_model = ClapTower.from_pretrained(self.audio_tower_name)
-        #self.clap_model.requires_grad_(False)        
-        #self.clap_processor = ClapProcessor.from_pretrained(self.audio_tower_name)
 
         self.is_loaded = True
 
@@ -104,7 +96,7 @@ class CLIPVisionTower(nn.Module):
             image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
             image_features = self.feature_select(image_forward_outs).to(images.dtype)
 
-        return image_features
+        return nn.functional.normalize(image_features)
 
     @property
     def dummy_feature(self):
