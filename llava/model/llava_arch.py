@@ -47,11 +47,13 @@ class LlavaMetaModel:
 
     def initialize_vision_modules(self, model_args, fsdp=None):
         vision_tower = model_args.vision_tower
+        text_tower = model_args.text_tower
         mm_vision_select_layer = model_args.mm_vision_select_layer
         mm_vision_select_feature = model_args.mm_vision_select_feature
         pretrain_mm_mlp_adapter = model_args.pretrain_mm_mlp_adapter
 
         self.config.mm_vision_tower = vision_tower
+        self.config.mm_text_tower = text_tower
 
         vision_tower, text_tower = build_multimodal_towers(model_args)
 
@@ -66,7 +68,7 @@ class LlavaMetaModel:
         
         self.config.use_mm_proj = True
         self.config.mm_projector_type = getattr(model_args, 'mm_projector_type', 'linear')
-        self.config.mm_hidden_size = vision_tower.hidden_size
+        self.config.mm_hidden_size = text_tower.LinearTransformation.out_features if model_args.use_text_tower else vision_tower.hidden_size
         self.config.mm_vision_select_layer = mm_vision_select_layer
         self.config.mm_vision_select_feature = mm_vision_select_feature
 
@@ -89,6 +91,9 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
+    def get_text_tower(self):
+        return self.get_model().get_text_tower()
+
     def encode_text_embeddings(self, text_toks):
         text_features = self.get_model().get_text_tower()(text_toks)
         text_features = self.get_model().mm_projector(text_features)
@@ -100,20 +105,20 @@ class LlavaMetaForCausalLM(ABC):
         return image_features
 
     def prepare_inputs_labels_for_multimodal(
-        self, input_ids, attention_mask, past_key_values, labels, images, texts_for_embedding=None,
+        self, input_ids, attention_mask, past_key_values, labels, images=None, text_toks=None,
     ):
         vision_tower = self.get_vision_tower()
-        if vision_tower is None or (images is None and texts_for_embedding is None) or input_ids.shape[1] == 1:
+        if vision_tower is None or (images is None and text_toks is None) or input_ids.shape[1] == 1:
             if past_key_values is not None and vision_tower is not None and images is not None and input_ids.shape[1] == 1:
                 attention_mask = torch.ones((attention_mask.shape[0], past_key_values[-1][-1].shape[-2] + 1), dtype=attention_mask.dtype, device=attention_mask.device)
             return input_ids, attention_mask, past_key_values, None, labels
         image_features = None
         text_features = None
-        if text_for_embedding is not None and (type(texts_for_embedding) is list):
+        if text_toks is not None and (type(text_toks) is list):
             #TODO: batch this with padding the input_ids and mask - harshraj
-            text_features = [self.encode_text_embeddings(txt_toks) for txt_toks in texts_for_embedding]
-        elif texts_for_embedding is not None:
-            text_features = self.encode_text_embeddings(texts_for_embedding)
+            text_features = [self.encode_text_embeddings(text_tok) for text_tok in text_toks]
+        elif text_toks is not None:
+            text_features = self.encode_text_embeddings(text_toks)
         elif images is not None and (type(images) is list or images.ndim == 5):
             concat_images = torch.cat([image for image in images], dim=0)
             image_features = self.encode_images(concat_images)
@@ -122,7 +127,6 @@ class LlavaMetaForCausalLM(ABC):
             image_features = [x.flatten(0, 1) for x in image_features]
         elif images is not None:
             image_features = self.encode_images(images)
-
         new_input_embeds = []
         new_labels = [] if labels is not None else None
         cur_image_idx = 0
@@ -230,7 +234,6 @@ class LlavaMetaForCausalLM(ABC):
                 new_attn_mask_pad_left = torch.full((attention_mask.shape[0], new_input_embeds.shape[1] - input_ids.shape[1]), True, dtype=attention_mask.dtype, device=attention_mask.device)
                 attention_mask = torch.cat((new_attn_mask_pad_left, attention_mask), dim=1)
                 assert attention_mask.shape == new_input_embeds.shape[:2]
-
         return None, attention_mask, past_key_values, new_input_embeds, new_labels
 
     def initialize_vision_tokenizer(self, model_args, tokenizer):
