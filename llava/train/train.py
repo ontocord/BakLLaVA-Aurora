@@ -650,6 +650,7 @@ class LazySupervisedDataset(Dataset):
             sources,
             self.tokenizer,
             has_image=('image' in self.list_data_dict[i] or 'text' in self.list_data_dict[i]))
+
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
                              labels=data_dict["labels"][0])
