@@ -69,7 +69,7 @@ class CLIPVisionTower(nn.Module):
 
     def load_model(self):
         self.image_processor = CLIPImageProcessor.from_pretrained(self.vision_tower_name, cache_dir="/p/scratch/ccstdl/raj3")
-        self.vision_tower = CLIPVisionModel.from_pretrained(self.vision_tower_name, cache_dir="/p/scratch/ccstdl/raj3")
+        self.vision_tower = CLIPVisionModelWithProjection.from_pretrained(self.vision_tower_name, cache_dir="/p/scratch/ccstdl/raj3")
         self.vision_tower.requires_grad_(False)
 
         self.is_loaded = True
