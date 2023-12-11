@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from multilingual_clip import pt_multilingual_clip
-from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
+from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig, CLIPVisionModelWithProjection
 from transformers import ClapModel, ClapProcessor
 import transformers
 
