@@ -18,7 +18,7 @@ class IdentityMap(nn.Module):
 class SimpleResBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.pre_norm = nn.LayerNorm(channels)
+        #self.pre_norm = nn.LayerNorm(channels)
 
         self.proj = nn.Sequential(
             nn.Linear(channels, channels),
@@ -26,7 +26,7 @@ class SimpleResBlock(nn.Module):
             nn.Linear(channels, channels)
         )
     def forward(self, x):
-        x = self.pre_norm(x)
+        x = nn.functional.normalize(x)
         return x + self.proj(x)
 
 
