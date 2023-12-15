@@ -72,7 +72,7 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         images: Optional[torch.FloatTensor] = None,
-        text_toks: Optional[torch.FloatTensor] = None,
+        text_toks: Optional[torch.Tensor] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         
@@ -176,6 +176,8 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
                 "position_ids": position_ids,
                 "attention_mask": attention_mask,
                 "token_type_ids": token_type_ids,
+                "images": kwargs.get("images", None),
+                "text_toks": kwargs.get("text_toks", None),   
             }
         )
         return model_inputs
@@ -198,6 +200,7 @@ class LlavaAuroraForCausalLM(GPTBigCodeForCausalLM, LlavaMetaForCausalLM):
                 "use_cache": kwargs.get("use_cache"),
                 "attention_mask": attention_mask,
                 "images": kwargs.get("images", None),
+                
             }
         )
         return model_inputs
