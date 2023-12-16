@@ -11,10 +11,10 @@ import warnings
 from types import MethodType
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
-#from transformers.models.bloom.modeling_bloom import BaseModelOutputWithPastAndCrossAttentions, BloomForCausalLM, BloomModel, CausalLMOutputWithCrossAttentions, CrossEntropyLoss
+from transformers.models.bloom.modeling_bloom import BaseModelOutputWithPastAndCrossAttentions, BloomForCausalLM, BloomModel, CausalLMOutputWithCrossAttentions, CrossEntropyLoss
 #from transformers.models.bloom.modeling_bloom import _expand_mask as _expand_mask_bloom
 #from transformers.models.bloom.modeling_bloom import _make_causal_mask as _make_causal_mask_bloom
-#from transformers.models.bloom.modeling_bloom import logging
+from transformers.models.bloom.modeling_bloom import logging
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoForCausalLM
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXForCausalLM
