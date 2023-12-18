@@ -46,7 +46,6 @@ class MCLIPConfig(transformers.PretrainedConfig):
  
 class MultilingualCLIP(transformers.PreTrainedModel):
      config_class = MCLIPConfig
-     _no_split_modules = []
  
      def __init__(self, config, *args, **kwargs):
          super().__init__(config, *args, **kwargs)

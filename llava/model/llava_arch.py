@@ -96,7 +96,9 @@ class LlavaMetaForCausalLM(ABC):
 
     def encode_text_embeddings(self, text_toks):
         text_features = self.get_model().get_text_tower()(text_toks)
+        print ('1', text_features)
         text_features = self.get_model().mm_projector(text_features)
+        print ('2', text_features)
         return text_features
         
     def encode_images(self, images):
@@ -117,6 +119,7 @@ class LlavaMetaForCausalLM(ABC):
         if text_toks is not None and (type(text_toks) is list):
             #TODO: batch this with padding the input_ids and mask - harshraj
             text_features = [self.encode_text_embeddings(text_tok) for text_tok in text_toks]
+            print (text_features)
         elif text_toks is not None:
             text_features = self.encode_text_embeddings(text_toks)
         elif images is not None and (type(images) is list or images.ndim == 5):
