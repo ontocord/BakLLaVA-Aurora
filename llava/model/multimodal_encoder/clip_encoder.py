@@ -50,7 +50,6 @@ class MultilingualCLIP(transformers.PreTrainedModel):
      def __init__(self, config, *args, **kwargs):
          super().__init__(config, *args, **kwargs)
          self.textemb_tokenizer = transformers.AutoTokenizer.from_pretrained(config.modelBase , cache_dir="/p/scratch/ccstdl/raj3")
-         print (config.modelBase)
          self.transformer = transformers.AutoModel.from_pretrained(config.modelBase)
          self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
                                                      out_features=config.numDims)
@@ -128,7 +127,7 @@ class CLIPVisionTower(nn.Module):
             image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
             image_features = self.feature_select(image_forward_outs).to(images.dtype)
 
-        return nn.functional.normalize(image_features)
+        return image_features
 
     @property
     def dummy_feature(self):

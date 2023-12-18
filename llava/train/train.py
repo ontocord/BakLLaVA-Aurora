@@ -77,6 +77,7 @@ class DataArguments:
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
     train_supervised: bool = field(default=True)
+    flashattn2: bool = field(default=True)
     deepspeed_config: str = field(default=None)
     lr: float = field(default=1e-3)
     beta1: float = field(default=0.5)
@@ -892,6 +893,8 @@ def train():
             model = LlavaAuroraForCausalLM.from_pretrained(
                 model_args.model_name_or_path,
                 cache_dir=training_args.cache_dir,
+                use_flash_attention_2=True if training_args.flashattn2 else False,
+                torch_dtype=compute_dtype,
                 **bnb_model_from_pretrained_args
             )
         else:
