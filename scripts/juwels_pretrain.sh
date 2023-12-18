@@ -14,7 +14,7 @@ CONDA_ENV="/p/project/ccstdl/shared/generic/miniconda3/envs/raj3_bakklava"
 MINICONDA_PATH="/p/project/ccstdl/shared/generic/miniconda3"
 
 
-MODEL_VERSION="aurora-m/Aurora-40k-hf"
+MODEL_VERSION="aurora-m/Aurora-90k-hf"
 EXP_NAME="bakllava-quadrant-$MODEL_VERSION-pretrain"
 
 # BAKLLAVA_PATH="/p/project/laionize/marianna/bakllava_original/BakLLaVA"
@@ -57,6 +57,7 @@ PROMPT_VERSION=plain
 export PYTHONPATH="$PYTHONPATH:${BAKLLAVA_PATH}"
 
 export CUDA_DEVICE_BLOCKING=1
+export WANDB_MODE=offline
 
 cd ${BAKLLAVA_PATH}
 
@@ -92,8 +93,8 @@ export CMD="llava/train/train_mem.py \
     --output_dir $OUTPUT_DIR \
     --resume_from_checkpoint False \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 1 \
-    --per_device_eval_batch_size 1 \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
@@ -107,9 +108,10 @@ export CMD="llava/train/train_mem.py \
     --tf32 True \
     --model_max_length 4096 \
     --gradient_checkpointing True \
-    --dataloader_num_workers 1 \
+    --dataloader_num_workers 8 \
     --lazy_preprocess True \
-    --report_to none \
+    --report_to wandb \
+    --flashattn2 True \
     --deepspeed ./scripts/zero3.json "
 
 srun --wait=60 \

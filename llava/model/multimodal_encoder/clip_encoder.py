@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from multilingual_clip import pt_multilingual_clip
+#from multilingual_clip import pt_multilingual_clip
 from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig, CLIPVisionModelWithProjection
 from transformers import ClapModel, ClapProcessor
 import transformers
@@ -35,21 +35,53 @@ class ClapTower(transformers.PreTrainedModel):
         model.load_state_dict(state_dict)
         return model, [], [], []
         
-
-class MultilingualCLIP(pt_multilingual_clip.MultilingualCLIP):
-        
-    def load_model(self, model_name):
-        self.textemb_tower = self.forward
-        self.textemb_tokenizer = transformers.AutoTokenizer.from_pretrained(model_name , cache_dir="/p/scratch/ccstdl/raj3")
-        self.transformer.requires_grad_(False)
-        self.LinearTransformation.requires_grad_(False)
-    
-    @torch.no_grad()
-    def forward(self, text_tok):
-        embs = self.transformer(**text_tok)[0]
-        att = text_tok['attention_mask']
-        embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
-        return nn.functional.normalize(self.LinearTransformation(embs))
+class MCLIPConfig(transformers.PretrainedConfig):
+     model_type = "M-CLIP"
+ 
+     def __init__(self, modelBase='M-CLIP/LABSE-Vit-L-14', transformerDimSize=1024, numDims=768, **kwargs):
+         self.transformerDimensions = transformerDimSize
+         self.numDims = numDims
+         self.modelBase = modelBase
+         super().__init__(**kwargs)
+ 
+class MultilingualCLIP(transformers.PreTrainedModel):
+     config_class = MCLIPConfig
+     _no_split_modules = []
+ 
+     def __init__(self, config, *args, **kwargs):
+         super().__init__(config, *args, **kwargs)
+         self.textemb_tokenizer = transformers.AutoTokenizer.from_pretrained(config.modelBase , cache_dir="/p/scratch/ccstdl/raj3")
+         self.transformer = transformers.AutoModel.from_pretrained(config.modelBase)
+         self.LinearTransformation = torch.nn.Linear(in_features=config.transformerDimensions,
+                                                     out_features=config.numDims)
+         self.transformer.requires_grad_(False)
+         self.LinearTransformation.requires_grad_(False)
+ 
+     def forward(self, txt_tok):
+         embs = self.transformer(**txt_tok)[0]
+         att = txt_tok['attention_mask']
+         embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
+         return self.LinearTransformation(embs)
+ 
+     @classmethod
+     def _load_state_dict_into_model(cls, model, state_dict, pretrained_model_name_or_path, _fast_init=True):
+         model.load_state_dict(state_dict)
+         return model, [], [], []
+         
+#class MultilingualCLIP(pt_multilingual_clip.MultilingualCLIP):
+#        
+#    def load_model(self, model_name):
+#        self.textemb_tower = self.forward
+#        self.textemb_tokenizer = transformers.AutoTokenizer.from_pretrained(model_name , cache_dir="/p/scratch/ccstdl/raj3")
+#        self.transformer.requires_grad_(False)
+#        self.LinearTransformation.requires_grad_(False)
+#    
+#    @torch.no_grad()
+#    def forward(self, text_tok):
+#        embs = self.transformer(**text_tok)[0]
+#        att = text_tok['attention_mask']
+#        embs = (embs * att.unsqueeze(2)).sum(dim=1) / att.sum(dim=1)[:, None]
+#        return nn.functional.normalize(self.LinearTransformation(embs))
 
 
 class CLIPVisionTower(nn.Module):
@@ -96,7 +128,7 @@ class CLIPVisionTower(nn.Module):
             image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
             image_features = self.feature_select(image_forward_outs).to(images.dtype)
 
-        return nn.functional.normalize(image_features)
+        return image_features
 
     @property
     def dummy_feature(self):
